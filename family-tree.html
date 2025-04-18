@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>族谱视图（带家庭节点）</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      height: 100vh;
+      margin: 0;
+    }
+    #sidebar {
+      top: 37px;
+      width: 140px;
+      padding: 10px;
+      background: #f0f0f0;
+      font-size: 14px;
+    }
+    #tree-container {
+      flex-grow: 1;
+      overflow: hidden;
+      position: relative;
+    }
+    .tooltip {
+      position: absolute;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      pointer-events: none;
+      display: none;
+    }
+    .node circle {
+      fill: #fff;
+      stroke: steelblue;
+      stroke-width: 2px;
+    }
+    .node text {
+      font-size: 12px;
+    }
+    .highlight text {
+      fill: red;
+      font-weight: bold;
+    }
+    .search-container {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: #f9f9f9;
+      padding: 6px 12px;
+      border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      z-index: 5;
+    }
+  </style>
+</head>
+<body>
+  
+    <div class="search-container">
+      🔍 <input type="text" id="searchInput" placeholder="输入姓名搜索">
+    </div>
+  <div id="sidebar">
+  </div>
+  <div id="tree-container">
+    <svg width="80%" height="1000"></svg>
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="data.js"></script>
+  <script>
+    const extraInfoMap = new Map(info.map(([name, extra]) => [name, extra]));
+    let familyId = 1;
+    const nodes = {};
+    const triples = [];
+
+    // 自动添加家庭节点
+    const parentToChildren = {};
+    for (const [parent, child, rel] of rawTriples) {
+      if (!parentToChildren[parent]) parentToChildren[parent] = [];
+      parentToChildren[parent].push([child, rel]);
+    }
+
+    for (const parent in parentToChildren) {
+      const family = `家庭${familyId++}`;
+      triples.push([parent, family, "家庭"]);
+      for (const [child, rel] of parentToChildren[parent]) {
+        triples.push([family, child, rel]);
+      }
+    }
+
+    // 构建节点对象
+    triples.forEach(([src, tgt]) => {
+      if (!nodes[src]) nodes[src] = { name: src, children: [], isFamily: src.startsWith("家庭") };
+      if (!nodes[tgt]) nodes[tgt] = { name: tgt, children: [], isFamily: tgt.startsWith("家庭") };
+    });
+
+    triples.forEach(([src, tgt, rel]) => {
+      nodes[src].children.push(nodes[tgt]);
+      nodes[tgt].rel = rel;
+    });
+
+    const root = nodes["爷爷"];
+    const svg = d3.select("svg");
+    const width = +svg.attr("width"),
+          height = +svg.attr("height");
+
+    const g = svg.append("g").attr("transform", "translate(400,40)");
+    const zoom = d3.zoom()
+                  .scaleExtent([0.5, 2]) // 限制缩放范围
+                  .on("zoom", (e) => {
+                    g.attr("transform", e.transform);
+                  });
+
+    svg.call(zoom);
+    // 设置初始位置，例如：
+    svg.call(zoom.transform, d3.zoomIdentity.translate(400, 40));
+    const tree = d3.tree().nodeSize([60, 100]);
+    const rootHierarchy = d3.hierarchy(root);
+    update(rootHierarchy);
+
+    function update(source) {
+      tree(rootHierarchy);
+
+      const nodesByDepth = {};
+      g.selectAll(".link").remove();
+      g.selectAll(".node").remove();
+
+      g.selectAll(".link")
+        .data(rootHierarchy.links())
+        .enter().append("path")
+        .attr("class", "link")
+        .attr("fill", "none")
+        .attr("stroke", "#999")
+        .attr("stroke-width", 1.5)
+        .attr("d", d => {
+          // 家庭节点：折线连接（横后竖）
+          if (d.target.data.isFamily) {
+            return `M${d.source.x},${d.source.y}
+                    L${d.source.x},${d.target.y}
+                    L${d.target.x},${d.target.y}`;
+          } else {
+            return `M${d.source.x},${d.source.y}
+                    L${d.target.x},${d.source.y}
+                    L${d.target.x},${d.target.y - 10}`;
+          }
+        });
+
+      const node = g.selectAll(".node")
+        .data(rootHierarchy.descendants())
+        .enter().append("g")
+        .attr("class", "node")
+        .attr("transform", d => `translate(${d.x},${d.y})`)
+        .each(d => {
+          if (!nodesByDepth[d.depth]) nodesByDepth[d.depth] = [];
+          if (!d.data.isFamily) {
+            nodesByDepth[parseInt(d.depth / 2)].push(d);
+          }
+        })
+        .on("mouseover", (event, d) => {
+          const extra = extraInfoMap.get(d.data.name);
+          d3.select("#tooltip")
+            .style("left", (event.pageX - 140) + "px")
+            .style("top", (event.pageY + 5) + "px")
+            .style("display", "block")
+            .html(`名字: ${d.data.name}${extra ? `<br>备注: ${extra}` : ''}`);
+            
+        })
+        .on("mouseout", () => {
+          d3.select("#tooltip").style("display", "none");
+        })
+        .on("click", (event, d) => {
+          if (d.children) {
+            d._children = d.children;
+            d.children = null;
+          } else {
+            d.children = d._children;
+            d._children = null;
+          }
+          update(source);
+        });
+
+      // node.filter(d => !d.data.isFamily).append("circle").attr("r", 6);
+      node.filter(d => !d.data.isFamily).append("text")
+        // .attr("dy", -10)
+        .attr("text-anchor", "middle")
+        .text(d => d.data.name);
+
+      // 左侧世代栏
+      const sidebar = d3.select("#sidebar").html("<br><br><br>");
+      Object.entries(nodesByDepth).forEach(([depth, ns]) => {
+        if (ns.length !== 0) {
+          const label = `第${+depth + 1}世`;
+          const people = ns.map(n => n.data.name).join("、");
+          sidebar.append("div").html(`<strong>${label}</strong><br>${people}`);
+
+        }
+      });
+    }
+
+    function highlight(name) {
+      g.selectAll("g.node")
+        .classed("highlight", d => d.data.name.includes(name));
+
+      const match = g.selectAll("g.node").filter(d => d.data.name.includes(name)).node();
+      if (match) {
+        const transform = d3.zoomIdentity.translate(width / 2 - match.__data__.x, height / 2 - match.__data__.y).scale(1);
+        svg.transition().duration(750).call(zoom.transform, transform);
+      }
+    }
+
+    document.getElementById("searchInput").addEventListener("input", e => {
+      const val = e.target.value.trim();
+      highlight(val);
+    });
+  </script>
+</body>
+</html>
