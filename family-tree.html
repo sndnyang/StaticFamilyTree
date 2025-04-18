@@ -137,13 +137,13 @@
         .attr("d", d => {
           // 家庭节点：折线连接（横后竖）
           if (d.target.data.isFamily) {
-            return `M${d.source.x},${d.source.y}
+            return `M${d.source.x},${d.source.y + 5}
                     L${d.source.x},${d.target.y}
                     L${d.target.x},${d.target.y}`;
           } else {
             return `M${d.source.x},${d.source.y}
                     L${d.target.x},${d.source.y}
-                    L${d.target.x},${d.target.y - 10}`;
+                    L${d.target.x},${d.target.y - 15}`;
           }
         });
 
@@ -206,7 +206,7 @@
       const match = g.selectAll("g.node").filter(d => d.data.name.includes(name)).node();
       if (match) {
         const transform = d3.zoomIdentity.translate(width / 2 - match.__data__.x, height / 2 - match.__data__.y).scale(1);
-        svg.transition().duration(750).call(zoom.transform, transform);
+        // svg.transition().duration(750).call(zoom.transform, transform);
       }
     }
 
