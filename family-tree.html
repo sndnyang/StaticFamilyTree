@@ -101,7 +101,7 @@
       nodes[tgt].rel = rel;
     });
 
-    const root = nodes["爷爷"];
+    const root = nodes[_root];
     const svg = d3.select("svg");
     const width = +svg.attr("width"),
           height = +svg.attr("height");
@@ -121,6 +121,7 @@
     update(rootHierarchy);
 
     function update(source) {
+      const back = source;
       tree(rootHierarchy);
 
       const nodesByDepth = {};
